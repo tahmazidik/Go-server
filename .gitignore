@@ -1,0 +1,13 @@
+# Go
+/bin/
+/build/
+/dist/
+*.exe
+*.test
+*.out
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+# deps cache (обычно не коммитят)
+vendor/
