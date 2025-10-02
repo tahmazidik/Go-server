@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -11,8 +13,63 @@ func helloHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Hello, Go server!")
 }
 
+// ожидаем путь вида /note/123
+func parseIDFromPath(path, prefix string) (int, bool) {
+	if !strings.HasPrefix(path, prefix) {
+		return 0, false
+	}
+	raw := strings.TrimPrefix(path, prefix)
+	raw = strings.TrimSuffix(raw, "/")
+	id, err := strconv.Atoi(raw)
+	return id, err == nil
+}
+
 type server struct {
 	db *notesDB
+}
+
+// GET /note/{id} - возвращает заметку по ID
+func (s *server) getNote(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"detail": "method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	id, ok := parseIDFromPath(r.URL.Path, "/note/")
+	if !ok {
+		http.NotFound(w, r) //404 страницы не найдена
+		return
+	}
+
+	n, ok := s.db.get(id)
+	if !ok {
+		http.Error(w, `{"detail": "note not found"}`, http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(n)
+}
+
+func (s *server) delNote(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, `{"detail": "method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	id, ok := parseIDFromPath(r.URL.Path, "/note/")
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	if ok := s.db.del(id); !ok {
+		http.Error(w, `{"detail": "note not found"}`, http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // Модель данных
@@ -53,6 +110,30 @@ func (db *notesDB) create(n Note) Note {
 	return n
 }
 
+func (db *notesDB) get(id int) (*Note, bool) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	for _, n := range db.data {
+		if n.ID == id {
+			nc := n //Копия, чтобы наружу не отдавать ссылку на внутренний объект
+			return &nc, true
+		}
+	}
+	return nil, false
+}
+
+func (db *notesDB) del(id int) bool {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	for i := range db.data {
+		if db.data[i].ID == id {
+			db.data = append(db.data[:i], db.data[i+1:]...) // Вырезаем i-й элемент
+			return true
+		}
+	}
+	return false
+}
+
 // Обработчики
 // POST /note - принимает JSON-объект Note и возвращает его обратно
 func (s *server) createNote(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +169,7 @@ func (s *server) createNote(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) listNotes(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+	if r.Method != http.MethodGet {
 		http.Error(w, `{"detail": "method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
@@ -105,6 +186,8 @@ func main() {
 	mux.HandleFunc("GET /", helloHandler)
 	mux.HandleFunc("POST /note", s.createNote) //Функция-обработчик
 	mux.HandleFunc("GET /notes", s.listNotes)  //Функция-обработчик
+	mux.HandleFunc("GET /note/", s.getNote)    //Функция-обработчик
+	mux.HandleFunc("DELETE /note/", s.delNote) //Функция-обработчик
 
 	http.ListenAndServe(":8000", mux)
 }
