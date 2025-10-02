@@ -10,21 +10,41 @@ func helloHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Hello, Go server!")
 }
 
-// Структура для ответ /ping
-type Ping struct {
-	Message string `json:"message"` //Тег говорит JSON-эндкодеру использовать ключ "message"
+// Модель данных
+type Note struct {
+	Name string `json:"name"` //Ключ в JSON будет "name"
+	Text string `json:"text"` //Ключ в JSON будет "text"
 }
 
-// GET /ping -> {"message": "pong"}
-func pingHandler(w http.ResponseWriter, r *http.Request) {
-	//Сообщаем клиенту формат
-	w.Header().Set("Content-Type", "application/json") // Гооворим клиенту, что щас придет JSON
-	//Ставим статус 200
-	w.WriteHeader(http.StatusOK)
-	//Кодируем структуру в JSON прямо в поток ответа
-	// Создаем энкодер, который пишет в w, и кодируем структуру в JSON
-	_ = json.NewEncoder(w).Encode(Ping{Message: "pong"})
+// Обработчики
+// POST /note - принимает JSON-объект Note и возвращает его обратно
+func createNoteHandler(w http.ResponseWriter, r *http.Request) {
+	// Базовая валидация - полезно, если кто-то
+	// случайно отправит не-Post на этот путь
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"detail": "method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	// Огранич размер тела на всякий случай (защита от гигабайтов)
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
 
+	// Распарсим JSON из тела в структуру
+	var in Note
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		http.Error(w, `{"detail": "invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Примитивная бизнес-валидация
+	if in.Name == "" || in.Text == "" {
+		http.Error(w, `{"detail": "name is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	//Сформируем ответ
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated) //201 Created
+	_ = json.NewEncoder(w).Encode(in) //Вернем то, что приняли
 }
 
 func main() {
@@ -32,8 +52,7 @@ func main() {
 	mux := http.NewServeMux()
 	// Регистрируем обработчики
 	mux.HandleFunc("GET /", helloHandler)
-	mux.HandleFunc("GET /ping", pingHandler) //Функция-обработчик
+	mux.HandleFunc("POST /note", createNoteHandler) //Функция-обработчик
 
 	http.ListenAndServe(":8000", mux)
-
 }
