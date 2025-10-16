@@ -9,6 +9,16 @@ import (
 	"sync"
 )
 
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, status int, detail string) {
+	writeJSON(w, status, map[string]string{"detail": detail})
+}
+
 func helloHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Hello, Go server!")
 }
@@ -31,7 +41,7 @@ type server struct {
 // GET /note/{id} - возвращает заметку по ID
 func (s *server) getNote(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, `{"detail": "method not allowed"}`, http.StatusMethodNotAllowed)
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -43,7 +53,7 @@ func (s *server) getNote(w http.ResponseWriter, r *http.Request) {
 
 	n, ok := s.db.get(id)
 	if !ok {
-		http.Error(w, `{"detail": "note not found"}`, http.StatusNotFound)
+		writeErr(w, http.StatusNotFound, "note not found")
 		return
 	}
 
@@ -53,7 +63,7 @@ func (s *server) getNote(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) delNote(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
-		http.Error(w, `{"detail": "method not allowed"}`, http.StatusMethodNotAllowed)
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -64,7 +74,7 @@ func (s *server) delNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if ok := s.db.del(id); !ok {
-		http.Error(w, `{"detail": "note not found"}`, http.StatusNotFound)
+		writeErr(w, http.StatusNotFound, "note not found")
 		return
 	}
 
@@ -158,7 +168,7 @@ func (s *server) createNote(w http.ResponseWriter, r *http.Request) {
 	// Базовая валидация - полезно, если кто-то
 	// случайно отправит не-Post на этот путь
 	if r.Method != http.MethodPost {
-		http.Error(w, `{"detail": "method not allowed"}`, http.StatusMethodNotAllowed)
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	// Огранич размер тела на всякий случай (защита от гигабайтов)
@@ -167,13 +177,13 @@ func (s *server) createNote(w http.ResponseWriter, r *http.Request) {
 	// Распарсим JSON из тела в структуру
 	var in Note
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		http.Error(w, `{"detail": "invalid JSON"}`, http.StatusBadRequest)
+		writeErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
 	// Примитивная бизнес-валидация
 	if in.Name == "" || in.Text == "" {
-		http.Error(w, `{"detail": "name is required"}`, http.StatusBadRequest)
+		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
 
@@ -188,7 +198,7 @@ func (s *server) createNote(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) listNotes(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, `{"detail": "method not allowed"}`, http.StatusMethodNotAllowed)
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -199,7 +209,7 @@ func (s *server) listNotes(w http.ResponseWriter, r *http.Request) {
 // PUT /note/{id} - обновляет заметку по ID
 func (s *server) updateNote(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
-		http.Error(w, `{"detail": "method not allowed"}`, http.StatusMethodNotAllowed)
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -215,14 +225,14 @@ func (s *server) updateNote(w http.ResponseWriter, r *http.Request) {
 
 	var in Note
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		http.Error(w, `{"detail": "invalid JSON"}`, http.StatusBadRequest)
+		writeErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
 	// Обновляем
 	updated, ok := s.db.update(id, in)
 	if !ok {
-		http.Error(w, `{"detail":"Note not found"}`, http.StatusNotFound)
+		writeErr(w, http.StatusNotFound, "Note not found")
 		return
 	}
 
