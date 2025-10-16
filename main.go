@@ -134,6 +134,24 @@ func (db *notesDB) del(id int) bool {
 	return false
 }
 
+func (db *notesDB) update(id int, upd Note) (*Note, bool) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	for i := range db.data {
+		if db.data[i].ID == id {
+			if upd.Name != "" {
+				db.data[i].Name = upd.Name
+			}
+			if upd.Text != "" {
+				db.data[i].Text = upd.Text
+			}
+			nc := db.data[i]
+			return &nc, true
+		}
+	}
+	return nil, false
+}
+
 // Обработчики
 // POST /note - принимает JSON-объект Note и возвращает его обратно
 func (s *server) createNote(w http.ResponseWriter, r *http.Request) {
@@ -178,6 +196,41 @@ func (s *server) listNotes(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(s.db.list())
 }
 
+// PUT /note/{id} - обновляет заметку по ID
+func (s *server) updateNote(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, `{"detail": "method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	//Парсим id из пути
+	id, ok := parseIDFromPath(r.URL.Path, "/note/")
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Читаем JSON из тела
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
+	var in Note
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		http.Error(w, `{"detail": "invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Обновляем
+	updated, ok := s.db.update(id, in)
+	if !ok {
+		http.Error(w, `{"detail":"Note not found"}`, http.StatusNotFound)
+		return
+	}
+
+	//Отвечаем
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(updated)
+}
+
 func main() {
 	s := &server{db: newDB()} //Инициалзируем сервер с пустой БД
 	// Используем свой mux(маршрутизатор)
@@ -188,6 +241,7 @@ func main() {
 	mux.HandleFunc("GET /notes", s.listNotes)  //Функция-обработчик
 	mux.HandleFunc("GET /note/", s.getNote)    //Функция-обработчик
 	mux.HandleFunc("DELETE /note/", s.delNote) //Функция-обработчик
+	mux.HandleFunc("PUT /note/", s.updateNote) //Функция-обработчик
 
 	http.ListenAndServe(":8000", mux)
 }
